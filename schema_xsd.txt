@@ -1,0 +1,12 @@
+<entry id="CVE-{year}-{number}">
+  <vuln:vulnerable-software-list>
+    <vuln:product>cpe:/a:{vendor}:{product}:{version}</vuln:product>
+  </vuln:vulnerable-software-list>
+  <vuln:cve-id>CVE-{year}-{number}</vuln:cve-id>
+  <vuln:published-datetime>{datetime}</vuln:published-datetime>
+  <vuln:cvss>
+    <cvss:base_metrics>
+      <cvss:score>{score}</cvss:score>
+    </cvss:base_metrics>
+  </vuln:cvss>
+</entry>
