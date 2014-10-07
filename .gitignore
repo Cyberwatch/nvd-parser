@@ -36,3 +36,5 @@ build/
 /data/*
 *.json
 Gemfile.lock
+*.png
+*.xls

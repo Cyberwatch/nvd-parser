@@ -41,6 +41,7 @@ require 'trollop'
 require 'json'
 require 'nokogiri'
 require 'set'
+require 'spreadsheet'
 
 # -- Parsing commands with CLI
 opts = Trollop::options do
@@ -55,6 +56,8 @@ EOS
 
   opt :verbose, "Verbose mode"
   opt :file, "NVD XML file to parse", :type => String
+  opt :excel, "Export to Excel"
+  opt :limitexcel, "Number of vulnerabilities for the product to be exported with Excel", :type => Integer, :default => 0
 end
 Trollop::die :file, "must exist" unless File.exist?(opts[:file]) if opts[:file]
 
@@ -68,6 +71,7 @@ results = Hash.new
 results["count_vulnerabilities"] = 0
 results["count_vendors"] = 0
 results["vendors"] = Array.new
+results["vulnerabilities"] = Array.new
 
 # -- Loading file
 start = Time.now
@@ -90,6 +94,14 @@ puts "Parsing..."
     product_set.add(product.text.split(":")[2]+":"+product.text.split(":")[3])
   end
   puts "## CVSS SCORE found: "+cvss_score.to_s unless !opts[:verbose]
+  if vulnerability = results["vulnerabilities"].find { |vul| vul["cvss_score"] == cvss_score }
+    vulnerability["count"] = vulnerability["count"] + 1
+  else
+    vulnerability_new = Hash.new
+    vulnerability_new["cvss_score"] = cvss_score
+    vulnerability_new["count"] = 1
+    results["vulnerabilities"].push(vulnerability_new)
+  end
   # Now we add them to the result Array
   puts "## PRODUCTS found:" unless !opts[:verbose]
   product_set.each do |prod|
@@ -122,15 +134,6 @@ puts "Parsing..."
       results["vendors"].push(vendor_new)
       results["count_vendors"] = results["count_vendors"] + 1
     end
-    #puts tech_vendor
-    #puts tech_product
-
-    #if results[tech_vendor].nil?
-    #  results[tech_vendor] = Array.new
-    #end
-    #if results[tech_vendor][tech_product].nil?
-    #  results[tech_vendor][tech_product] =
-    #results[tech_vendor].push(entry.xpath("vuln:cvss//cvss:base_metrics//cvss:score").text.to_f)
   end
 end
 puts "Parsed!" unless !opts[:verbose]
@@ -140,14 +143,69 @@ diff = finish - start
 puts "Executed in "+diff.to_s+" seconds."
 puts results.to_json unless !opts[:verbose]
 
+# -- Exporting to JSON
+
 begin
   output_filename = "results_"+opts[:file].split("/").last+".json"
   puts "Exporting to "+output_filename+"..."
   fileResult = File.open(output_filename, "w")
   fileResult.write(results.to_json)
-  puts "Done! Exiting..."
+  puts "Export to JSON done! Exiting..."
 rescue IOError => e
   #some error
 ensure
   fileResult.close unless fileResult == nil
+end
+
+# -- Exporting to Excel
+if opts[:excel]
+  excel_workbook = Spreadsheet::Workbook.new
+  sheet = excel_workbook.create_worksheet :name => 'CVSS Vulstats'
+  curr_row = sheet.row(0)
+  # -- Creating the row of legends
+  curr_row.push 'Vendor:Tech'
+  scale = (0..100).to_a
+  for score in scale do
+    curr_row.push (score.to_f/10)
+  end
+  # -- Writing cells
+  index_row = 1
+  for vendor in results["vendors"] do
+    for product in vendor["products"] do
+      if product["count_vulnerabilities"] >= opts[:limitexcel]
+        curr_row = sheet.row(index_row)
+        curr_row.push vendor["vendor"]+":"+product["product"]
+        for score in product["cvss_scores"] do
+          if curr_row[score*10+1].nil?
+            #curr_row[score*10 + 1] = 1.0/product["count_vulnerabilities"]
+            curr_row[score*10 + 1] = 1
+          else
+            #curr_row[score*10 + 1] = (curr_row[score*10 + 1].to_f*product["count_vulnerabilities"]+1.0)/product["count_vulnerabilities"]
+            curr_row[score*10 + 1] = curr_row[score*10 + 1].to_i + 1
+          end
+        end
+        index_row = index_row + 1
+      end
+    end
+  end
+  total_row = sheet.row(index_row)
+  total_normalized_row = sheet.row(index_row+1)
+  total_row.push "TOTAL"
+  total_normalized_row.push "TOTAL NORMALISE"
+  for vulnerability in results["vulnerabilities"] do
+    total_row[vulnerability["cvss_score"]*10+1] = vulnerability["count"]
+    total_normalized_row[vulnerability["cvss_score"]*10+1] = vulnerability["count"].to_f/results["count_vulnerabilities"].to_f
+  end
+
+  # -- Writing
+  begin
+    output_xls_filename = "results_"+opts[:file].split("/").last+".xls"
+    puts "Exporting to "+output_xls_filename+"..."
+    excel_workbook.write(output_xls_filename)
+    puts "Export to XLS done! Exiting..."
+  rescue IOError => e
+    #some error
+    puts "Error in XLS export!"
+  end
+
 end
